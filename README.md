@@ -11,6 +11,7 @@ adb shell "screencap -p |/data/local/tmp/png2jpg i /sdcard/screenshot.png /sdcar
 # mode p
 adb shell "screencap -p |/data/local/tmp/png2jpg p /sdcard/test.jpg  85 2"
 # mode r
+adb shell wm size
 adb exec-out "screencap  |/data/local/tmp/png2jpg r 1080 2376 85 1">1.jpg
 ```
 
