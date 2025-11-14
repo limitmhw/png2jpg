@@ -11,3 +11,5 @@ adb shell "screencap -p |/data/local/tmp/png2jpg i /sdcard/screenshot.png /sdcar
 # mode p
 adb shell "screencap -p |/data/local/tmp/png2jpg p /sdcard/test.jpg  85 2"
 ```
+
+Related to  https://github.com/openstf/minicap
