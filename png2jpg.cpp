@@ -198,10 +198,72 @@ int main(int argc, char ** argv) {
         stbi_image_free(img);
 
 
+    } else if (*mode == 'r') {
+        if (argc < 4) {
+            std::fprintf(stderr, "Usage: %s r <width> <height> [quality] [downsample_factor]\n", argv[0]);
+            return 1;
+        }
+
+        int width = std::atoi(argv[2]);
+        int height = std::atoi(argv[3]);
+
+        int quality = 85;
+        int downsample_factor = 1;
+        if (argc >= 5) quality = std::atoi(argv[4]);
+        if (argc >= 6) downsample_factor = std::atoi(argv[5]);
+
+        if (quality < 1) quality = 1;
+        if (quality > 100) quality = 100;
+        if (downsample_factor != 1 && downsample_factor != 2 && downsample_factor != 4) {
+            std::fprintf(stderr, "Invalid downsample factor: %d. Supported values are 1, 2, 4.\n", downsample_factor);
+            return 7;
+        }
+
+        size_t num_pixels = width * height;
+        std::vector<uint8_t> raw_data(num_pixels * 4);
+
+        // 从 stdin 读取 raw 数据
+        size_t read_bytes = fread(raw_data.data(), 1, raw_data.size(), stdin);
+        if (read_bytes != raw_data.size()) {
+            std::fprintf(stderr, "Error: expected %zu bytes, got %zu bytes\n", raw_data.size(), read_bytes);
+            return 2;
+        }
+
+        // 下采样 + ARGB -> RGB
+        int new_w = (width + downsample_factor - 1) / downsample_factor;
+        int new_h = (height + downsample_factor - 1) / downsample_factor;
+        std::vector<uint8_t> rgb_data(new_w * new_h * 3);
+
+        for (int y = 0; y < new_h; ++y) {
+            int old_y = std::min(y * downsample_factor, height - 1);
+            for (int x = 0; x < new_w; ++x) {
+                int old_x = std::min(x * downsample_factor, width - 1);
+                size_t src_idx = (old_y * width + old_x) * 4; // ARGB
+                size_t dst_idx = (y * new_w + x) * 3;         // RGB
+                rgb_data[dst_idx + 0] = raw_data[src_idx + 1]; // R
+                rgb_data[dst_idx + 1] = raw_data[src_idx + 2]; // G
+                rgb_data[dst_idx + 2] = raw_data[src_idx + 3]; // B
+            }
+        }
+
+        // 直接输出 JPEG 到 stdout
+        if (!stbi_write_jpg_to_func(
+                [](void* context, void* data, int size) {
+                    fwrite(data, 1, size, stdout);
+                },
+                nullptr,
+                new_w, new_h, 3,
+                rgb_data.data(),
+                quality))
+        {
+            std::fprintf(stderr, "Failed to write JPG to stdout\n");
+            return 3;
+        }
+
+        std::fprintf(stderr, "Saved raw -> stdout (%dx%d, quality=%d, downsample_factor=%d)\n",
+            new_w, new_h, quality, downsample_factor);
     } else {
         std::printf("mode error! mode is i or p");
     }
-
-
     return 0;
 }
