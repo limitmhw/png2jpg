@@ -3,12 +3,10 @@ import time
 import os
 
 # adb + png2jpg 命令
-WIDTH = 1080
-HEIGHT = 2376
 QUALITY = 60
-DOWNSAMPLE = 1
+DOWNSAMPLE = 2
 
-CMD = f'adb exec-out "screencap | /data/local/tmp/png2jpg r {WIDTH} {HEIGHT} {QUALITY} {DOWNSAMPLE}"'
+CMD = f'adb exec-out "screencap | /data/local/tmp/png2jpg r {QUALITY} {DOWNSAMPLE}"'
 
 # 保存临时文件夹
 TMP_DIR = "tmp_frames"
