@@ -21,6 +21,15 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+// https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-13.0.0_r3/cmds/screencap/screencap.cpp
+struct ScreencapHeader {
+    uint32_t width;
+    uint32_t height;
+    uint32_t format;    // 对应 android::PixelFormat
+    uint32_t colorspace; // 对应 COLORSPACE_UNKNOWN, COLORSPACE_SRGB, 等
+};
+const int DEFAULT_BYTES_PER_PIXEL = 4; 
+
 static bool file_exists(const char * path) {
     struct stat st;
     return stat(path, & st) == 0;
@@ -198,19 +207,11 @@ int main(int argc, char ** argv) {
         stbi_image_free(img);
 
 
-    } else if (*mode == 'r') {
-        if (argc < 4) {
-            std::fprintf(stderr, "Usage: %s r <width> <height> [quality] [downsample_factor]\n", argv[0]);
-            return 1;
-        }
-
-        int width = std::atoi(argv[2]);
-        int height = std::atoi(argv[3]);
-
+    } else  if (*mode == 'r') {
         int quality = 85;
         int downsample_factor = 1;
-        if (argc >= 5) quality = std::atoi(argv[4]);
-        if (argc >= 6) downsample_factor = std::atoi(argv[5]);
+        if (argc >= 3) quality = std::atoi(argv[2]);
+        if (argc >= 4) downsample_factor = std::atoi(argv[3]);
 
         if (quality < 1) quality = 1;
         if (quality > 100) quality = 100;
@@ -219,34 +220,55 @@ int main(int argc, char ** argv) {
             return 7;
         }
 
-        size_t num_pixels = width * height;
-        std::vector<uint8_t> raw_data(num_pixels * 4);
-
-        // 从 stdin 读取 raw 数据
-        size_t read_bytes = fread(raw_data.data(), 1, raw_data.size(), stdin);
-        if (read_bytes != raw_data.size()) {
-            std::fprintf(stderr, "Error: expected %zu bytes, got %zu bytes\n", raw_data.size(), read_bytes);
+        // 1. 从 stdin 读取 16 字节的头部信息
+        ScreencapHeader header;
+        size_t header_read_bytes = fread(&header, 1, sizeof(ScreencapHeader), stdin);
+        if (header_read_bytes != sizeof(ScreencapHeader)) {
+            std::fprintf(stderr, "Error: failed to read screencap header. Expected %zu bytes, got %zu bytes\n", 
+                         sizeof(ScreencapHeader), header_read_bytes);
             return 2;
         }
 
-        // 下采样 + ARGB -> RGB
+        uint32_t width = header.width;
+        uint32_t height = header.height;
+        uint32_t pixel_format = header.format; // 像素格式
+        uint32_t colorspace = header.colorspace; // 颜色空间
+
+        // 假设每个像素 4 字节 (RGBA_8888 或 RGBX_8888)
+        const int bytes_per_pixel = DEFAULT_BYTES_PER_PIXEL; 
+
+        size_t num_pixels = width * height;
+        std::vector<uint8_t> raw_data(num_pixels * bytes_per_pixel);
+
+        // 2. 从 stdin 读取紧随其后的 raw 像素数据
+        size_t pixel_data_read_bytes = fread(raw_data.data(), 1, raw_data.size(), stdin);
+        if (pixel_data_read_bytes != raw_data.size()) {
+            std::fprintf(stderr, "Error: expected %zu bytes of pixel data, got %zu bytes\n", 
+                         raw_data.size(), pixel_data_read_bytes);
+            return 2;
+        }
+
+        // 3. 下采样 + RGBA -> RGB 转换
         int new_w = (width + downsample_factor - 1) / downsample_factor;
         int new_h = (height + downsample_factor - 1) / downsample_factor;
         std::vector<uint8_t> rgb_data(new_w * new_h * 3);
 
         for (int y = 0; y < new_h; ++y) {
-            int old_y = std::min(y * downsample_factor, height - 1);
+            int old_y = std::min(static_cast<int>(y * downsample_factor), static_cast<int>(height - 1));
             for (int x = 0; x < new_w; ++x) {
-                int old_x = std::min(x * downsample_factor, width - 1);
-                size_t src_idx = (old_y * width + old_x) * 4; // ARGB
-                size_t dst_idx = (y * new_w + x) * 3;         // RGB
-                rgb_data[dst_idx + 0] = raw_data[src_idx + 1]; // R
-                rgb_data[dst_idx + 1] = raw_data[src_idx + 2]; // G
-                rgb_data[dst_idx + 2] = raw_data[src_idx + 3]; // B
+                int old_x = std::min(static_cast<int>(x * downsample_factor), static_cast<int>(width - 1));
+                size_t src_idx = (old_y * width + old_x) * bytes_per_pixel; // 源像素 (RGBA)
+                size_t dst_idx = (y * new_w + x) * 3;                     // 目标像素 (RGB)
+                
+                // 正确的 RGBA/RGBX 到 RGB 转换
+                // 假设字节顺序为 R, G, B, A/X
+                rgb_data[dst_idx + 0] = raw_data[src_idx + 0]; // R
+                rgb_data[dst_idx + 1] = raw_data[src_idx + 1]; // G
+                rgb_data[dst_idx + 2] = raw_data[src_idx + 2]; // B
             }
         }
 
-        // 直接输出 JPEG 到 stdout
+        // 4. 将处理后的 RGB 数据直接输出为 JPEG 到 stdout
         if (!stbi_write_jpg_to_func(
                 [](void* context, void* data, int size) {
                     fwrite(data, 1, size, stdout);
@@ -260,8 +282,9 @@ int main(int argc, char ** argv) {
             return 3;
         }
 
-        std::fprintf(stderr, "Saved raw -> stdout (%dx%d, quality=%d, downsample_factor=%d)\n",
-            new_w, new_h, quality, downsample_factor);
+        std::fprintf(stderr, "Successfully converted raw data to JPEG.\n");
+        std::fprintf(stderr, "Original: %ux%u (Format: %u, Colorspace: %u), Output: %dx%d, Quality: %d, Downsample: %d\n",
+            width, height, pixel_format, colorspace, new_w, new_h, quality, downsample_factor);
     } else {
         std::printf("mode error! mode is i or p");
     }
