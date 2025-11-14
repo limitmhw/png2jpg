@@ -11,8 +11,9 @@ adb shell "screencap -p |/data/local/tmp/png2jpg i /sdcard/screenshot.png /sdcar
 # mode p
 adb shell "screencap -p |/data/local/tmp/png2jpg p /sdcard/test.jpg  85 2"
 # mode r
-adb shell wm size
-adb exec-out "screencap  |/data/local/tmp/png2jpg r 1080 2376 85 1">1.jpg
+# windows need git bash
+adb exec-out "screencap  |/data/local/tmp/png2jpg r 85 2">1.jpg
+
 ```
 
 Related to  https://github.com/openstf/minicap
